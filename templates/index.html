@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Live Stock Display</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <main class="card">
+      <h1>Live Stock Display</h1>
+      <div class="sub">Symbol: <strong id="symbol">{{ symbol }}</strong> • Poll: {{ poll_seconds }}s</div>
+
+      <div class="grid">
+        <div class="stat">
+          <div class="label">Price</div>
+          <div class="value" id="price">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Change</div>
+          <div class="value" id="change">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">% Change</div>
+          <div class="value" id="changePct">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Status</div>
+          <div class="value small" id="note">—</div>
+        </div>
+      </div>
+
+      <div class="footer">
+        Last update: <span id="ts">—</span>
+      </div>
+    </main>
+
+    <!-- Socket.IO client (served from CDN) -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
