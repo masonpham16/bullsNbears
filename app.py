@@ -1,4 +1,6 @@
 import os
+if os.environ.get("RENDER"):
+    socketio.start_background_task(poll_loop)
 import time
 import requests
 from dotenv import load_dotenv
