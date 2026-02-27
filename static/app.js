@@ -1,10 +1,16 @@
 // static/app.js
 // Two-mode dots:
 // - Market CLOSED: calm ambient dots (neutral color, constant count)
-// - Market OPEN: dots scale with volume, color reflects day change (up/down/flat)
+// - Market OPEN: dots scale with daily volume (shares) using ONE global scale (1..100),
+//                and color reflects day change (up/down/flat).
 // Dots always spawn from the center of the canvas and migrate into each card's dot-region.
 
 const socket = io();
+
+socket.on("connect", () => console.log("✅ connected", socket.id));
+socket.on("disconnect", (r) => console.log("❌ disconnected", r));
+socket.onAny((event, ...args) => console.log("📨", event, args));
+socket.on("connect_error", (err) => console.log("⚠️ connect_error", err.message));
 
 /* ---------------------- formatting helpers ---------------------- */
 function fmt(n, digits = 2) {
@@ -89,12 +95,13 @@ let targets = {}; // symbol -> {x,y,rRegion}
 let dots = [];
 
 // CLOSED mode
-const AMBIENT_DOTS_CLOSED = 50; // amount of dots shown
+const AMBIENT_DOTS_CLOSED = 18; // calm amount of dots shown per symbol while closed
 
-// OPEN mode volume scaling
-const SHARES_PER_DOT = 1_000_000;
-const MAX_DOTS_PER_SYMBOL = 80;
-const MIN_DOTS_PER_SYMBOL = 6;
+// OPEN mode: 1..100 dots using ONE shared reference scale for comparability.
+// Tune this to match your taste.
+// - Lower => more dots on average
+// - Higher => fewer dots on average
+const MAX_REFERENCE_VOLUME = 400_000_000; // 400M shares ~= “craziest day” => 100 dots
 
 // dot geometry
 const DOT_R = 2.2;
@@ -159,10 +166,17 @@ function centerSpawn() {
 	return { x: W / 2, y: H / 2 };
 }
 
-desiredCountFromVolume = function desiredCountFromVolume(volume) {
-	if (volume == null || volume === 0) return MIN_DOTS_PER_SYMBOL;
-	const count = Math.round(Number(volume) / SHARES_PER_DOT);
-	return Math.min(MAX_DOTS_PER_SYMBOL, Math.max(MIN_DOTS_PER_SYMBOL, count));
+/**
+ * Map volume (shares) -> dot count (1..100), globally comparable across symbols.
+ * If NVDA volume is 2x GOOGL, it will have ~2x dots (rounding aside).
+ */
+desiredCountFromVolume = function desiredCountFromVolume(volumeShares) {
+	if (!volumeShares || !Number.isFinite(volumeShares)) {
+		return 1;
+	}
+	const v = Math.max(0, Number(volumeShares));
+	const dots = Math.round((v / MAX_REFERENCE_VOLUME) * 100);
+	return Math.max(1, Math.min(100, dots));
 };
 
 syncDotsForSymbol = function syncDotsForSymbol(symbol, desiredCount) {
@@ -261,7 +275,7 @@ function clampSpeed(d) {
 }
 
 function resolveDotCollisions() {
-	// O(n^2) is fine here (<= 4*80 = 320 dots worst-case)
+	// O(n^2) is fine here (<= 4*100 = 400 dots worst-case, still okay)
 	for (let i = 0; i < dots.length; i++) {
 		for (let j = i + 1; j < dots.length; j++) {
 			const a = dots[i];
@@ -337,7 +351,6 @@ function step() {
 }
 
 seedAmbientDots = function seedAmbientDots() {
-	// Seed dots for all cards that exist in DOM (even before any socket data arrives)
 	document.querySelectorAll(".stock-card").forEach(card => {
 		const sym = card.id.replace("card-", "");
 		if (!symbolState[sym]) symbolState[sym] = { volume: null, change: null };
@@ -348,20 +361,16 @@ seedAmbientDots = function seedAmbientDots() {
 /* ---------------------- INIT: wait for layout, then start dots ---------------------- */
 if (ctx) {
 	window.addEventListener("load", () => {
-		// ensure layout exists so dot-regions have real sizes
 		resizeCanvas();
 		setTimeout(resizeCanvas, 150);
 
-		// compute market mode and seed dots AFTER we have targets
 		updateMarketMode();
 		setInterval(updateMarketMode, 20000);
 
 		seedAmbientDots();
 
-		// start animation
 		requestAnimationFrame(step);
 
-		// keep targets fresh if cards move due to layout changes
 		setInterval(recomputeTargets, 1000);
 	});
 } else {
@@ -373,7 +382,11 @@ window.addEventListener("resize", () => {
 });
 
 /* ---------------------- STOCK UPDATES ---------------------- */
-socket.on("stock_update", (data) => {
+socket.on("server_test", (data) => {
+	console.log("🎯 server_test", data);
+});
+
+socket.on("tick", (data) => {
 	const symbol = data.symbol;
 	if (!symbol) return;
 
@@ -382,35 +395,31 @@ socket.on("stock_update", (data) => {
 	if (data.volume != null) symbolState[symbol].volume = Number(data.volume);
 	if (data.change != null) symbolState[symbol].change = Number(data.change);
 
-	// update DOM
 	const elPrice = document.getElementById(`price-${symbol}`);
 	const elChange = document.getElementById(`change-${symbol}`);
 	const elVolume = document.getElementById(`volume-${symbol}`);
 	const elTs = document.getElementById(`ts-${symbol}`);
 
-	if (elPrice) elPrice.textContent = data.price != null ? fmt(data.price, 2) : "—";
-	if (elChange) setSigned(elChange, data.change, 2);
-	if (elVolume) elVolume.textContent = data.volume != null ? Number(data.volume).toLocaleString() : "—";
+	if (elPrice) elPrice.textContent = data.price != null ? fmt(Number(data.price), 2) : "—";
+	if (elChange) setSigned(elChange, data.change != null ? Number(data.change) : null, 2);
 
-	if (elTs) {
-		elTs.textContent = data.ts ? new Date(data.ts * 1000).toLocaleString() : "—";
+	// Display volume in millions
+	if (elVolume) {
+		if (data.volume != null) {
+			const volM = Number(data.volume) / 1_000_000;
+			elVolume.textContent = `${volM.toFixed(2)}M`;
+		} else {
+			elVolume.textContent = "—";
+		}
 	}
 
-	// update dots based on current market mode
+	if (elTs) {
+		elTs.textContent = data.ts ? new Date(Number(data.ts) * 1000).toLocaleString() : "—";
+	}
+
 	if (marketOpen) {
 		syncDotsForSymbol(symbol, desiredCountFromVolume(symbolState[symbol].volume));
 	} else {
 		syncDotsForSymbol(symbol, AMBIENT_DOTS_CLOSED);
 	}
 });
-
-/* ---------------------- OPTIONAL DEV TEST (uncomment to test without backend) ---------------------- */
-// setTimeout(() => {
-//   ["AAPL", "MSFT", "NVDA", "GOOGL"].forEach((sym, i) => {
-//     if (!symbolState[sym]) symbolState[sym] = { volume: null, change: null };
-//     symbolState[sym].volume = 25_000_000 + i * 10_000_000;
-//     symbolState[sym].change = i % 2 === 0 ? 1.2 : -0.8;
-//     if (marketOpen) syncDotsForSymbol(sym, desiredCountFromVolume(symbolState[sym].volume));
-//     else syncDotsForSymbol(sym, AMBIENT_DOTS_CLOSED);
-//   });
-// }, 800);
