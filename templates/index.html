@@ -1,42 +1,65 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Live Stock Display</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
-  </head>
-  <body>
-    <main class="card">
-      <h1>Live Stock Display</h1>
-      <div class="sub">Symbol: <strong id="symbol">{{ symbol }}</strong> • Poll: {{ poll_seconds }}s</div>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width,initial-scale=1" />
+		<title>Live Stock Display</title>
+		<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+	</head>
+	<body>
 
-      <div class="grid">
-        <div class="stat">
-          <div class="label">Price</div>
-          <div class="value" id="price">—</div>
-        </div>
-        <div class="stat">
-          <div class="label">Change</div>
-          <div class="value" id="change">—</div>
-        </div>
-        <div class="stat">
-          <div class="label">% Change</div>
-          <div class="value" id="changePct">—</div>
-        </div>
-        <div class="stat">
-          <div class="label">Status</div>
-          <div class="value small" id="note">—</div>
-        </div>
-      </div>
+		<!-- Floating Market Status Banner -->
+		<div id="marketBanner" class="market-banner hidden">
+			<div class="market-banner__box">
+				<span class="market-banner__title">Market Closed</span>
+				<span class="market-banner__sub">(Regular hours: 9:30 AM–4:00 PM ET)</span>
+			</div>
+		</div>
 
-      <div class="footer">
-        Last update: <span id="ts">—</span>
-      </div>
-    </main>
+		<main class="card">
+			<h1>Live Stock Display</h1>
 
-    <!-- Socket.IO client (served from CDN) -->
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-    <script src="{{ url_for('static', filename='app.js') }}"></script>
-  </body>
+			<div class="sub">
+				Symbols: {{ symbols | join(", ") }} • Poll: {{ poll_seconds }}s
+			</div>
+
+			<div class="grid-wrap" id="gridWrap">
+				<canvas id="dots" class="dots-canvas"></canvas>
+
+				<div class="grid" id="stockGrid">
+					{% for symbol in symbols %}
+					<div class="stock-card" id="card-{{ symbol }}">
+						<h3>{{ symbol }}</h3>
+
+						<div class="dot-region" id="region-{{ symbol }}"></div>
+
+						<div class="stat">
+							<div class="label">Current Price</div>
+							<div class="value" id="price-{{ symbol }}">—</div>
+						</div>
+
+						<div class="stat">
+							<div class="label">Day Change</div>
+							<div class="value" id="change-{{ symbol }}">—</div>
+						</div>
+
+						<div class="stat">
+							<div class="label">Volume</div>
+							<div class="value" id="volume-{{ symbol }}">—</div>
+						</div>
+
+						<div class="footer">
+							Last update: <span id="ts-{{ symbol }}">—</span>
+						</div>
+					</div>
+					{% endfor %}
+				</div>
+			</div>
+		</main>
+
+		<!-- Socket.IO -->
+		<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+		<script defer src="{{ url_for('static', filename='app.js') }}"></script>
+
+	</body>
 </html>

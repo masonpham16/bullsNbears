@@ -79,7 +79,12 @@ def poll_loop():
 
 @app.route("/")
 def index():
-    return render_template("index.html", symbol=SYMBOL, poll_seconds=POLL_SECONDS)
+    symbols = ["AAPL", "MSFT", "NVDA", "GOOGL"]
+    return render_template(
+        "index.html",
+        symbols=symbols,
+        poll_seconds=15
+)
 
 @app.route("/api/latest")
 def api_latest():
