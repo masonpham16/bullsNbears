@@ -90,8 +90,13 @@ def on_connect():
     # Send whatever we currently have immediately
     socketio.emit("tick", latest)
 
+@app.route("/health")
+def health():
+    return {"status": "ok"}
+
 if __name__ == "__main__":
     # Start background polling task
     socketio.start_background_task(poll_loop)
 #    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
-    socketio.run(app, host="0.0.0.0", port=5050, debug=True)
+    # socketio.run(app, host="0.0.0.0", port=5050, debug=True) # do this when debugging
+    socketio.run(app, host="0.0.0.0", port=5050, debug=False)
