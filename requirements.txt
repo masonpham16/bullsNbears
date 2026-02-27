@@ -3,6 +3,4 @@ Flask-SocketIO==5.3.6
 python-dotenv==1.0.1
 requests==2.32.3
 eventlet==0.36.1
-flask-socketio
-eventlet
-gunicorn
+gunicorn==25.1.0
