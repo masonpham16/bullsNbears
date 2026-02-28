@@ -3,39 +3,50 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Live Stock Display</title>
+    <title>Bulls n Bears</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   </head>
   <body>
-    <main class="card">
-      <h1>Live Stock Display</h1>
-      <div class="sub">Symbol: <strong id="symbol">{{ symbol }}</strong> • Poll: {{ poll_seconds }}s</div>
+    <main class="page">
+      <header class="hero">
+        <h1>Bulls n Bears</h1>
+        <p class="sub">Live market pulse across {{ symbols|length }} symbols • Poll {{ poll_seconds }}s</p>
+        <div id="marketBanner" class="market-banner hidden">Market Closed (ET)</div>
+      </header>
 
-      <div class="grid">
-        <div class="stat">
-          <div class="label">Price</div>
-          <div class="value" id="price">—</div>
-        </div>
-        <div class="stat">
-          <div class="label">Change</div>
-          <div class="value" id="change">—</div>
-        </div>
-        <div class="stat">
-          <div class="label">% Change</div>
-          <div class="value" id="changePct">—</div>
-        </div>
-        <div class="stat">
-          <div class="label">Status</div>
-          <div class="value small" id="note">—</div>
-        </div>
-      </div>
+      <section id="gridWrap" class="grid-wrap" aria-label="Stock grid">
+        <canvas id="dots" aria-hidden="true"></canvas>
 
-      <div class="footer">
-        Last update: <span id="ts">—</span>
-      </div>
+        <div class="grid">
+          {% for symbol in symbols %}
+          <article class="stock-card" id="card-{{ symbol }}">
+            <div class="card-top">
+              <h2>{{ symbol }}</h2>
+              <div class="timestamp">Updated: <span id="ts-{{ symbol }}">—</span></div>
+            </div>
+
+            <div class="stats">
+              <div class="stat">
+                <div class="label">Price</div>
+                <div class="value" id="price-{{ symbol }}">—</div>
+              </div>
+              <div class="stat">
+                <div class="label">Change</div>
+                <div class="value" id="change-{{ symbol }}">—</div>
+              </div>
+              <div class="stat">
+                <div class="label">Volume</div>
+                <div class="value" id="volume-{{ symbol }}">—</div>
+              </div>
+            </div>
+
+            <div class="dot-region" id="region-{{ symbol }}" aria-hidden="true"></div>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
     </main>
 
-    <!-- Socket.IO client (served from CDN) -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
   </body>
