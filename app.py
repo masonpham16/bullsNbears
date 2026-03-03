@@ -316,19 +316,30 @@ def get_cached_volume(symbol: str):
     if (now - int(entry.get("fetched_at", 0))) < VOLUME_TTL_SECONDS:
         return entry.get("value")
 
-    # Refresh; if refresh fails, keep old cached value
+    # Refresh using provider fallbacks; one failure should not block others.
+    v = None
     try:
         v = fetch_intraday_volume_finnhub(symbol)
-        if v is None:
-            v = fetch_daily_volume_finnhub(symbol)
-        if v is None:
-            v = fetch_intraday_volume_yahoo(symbol)
-        if v is None:
-            v = entry.get("value")
-        volume_cache[symbol] = {"value": v, "fetched_at": now}
-        return v
     except Exception:
-        return entry.get("value")
+        v = None
+
+    if v is None:
+        try:
+            v = fetch_daily_volume_finnhub(symbol)
+        except Exception:
+            v = None
+
+    if v is None:
+        try:
+            v = fetch_intraday_volume_yahoo(symbol)
+        except Exception:
+            v = None
+
+    if v is None:
+        v = entry.get("value")
+
+    volume_cache[symbol] = {"value": v, "fetched_at": now}
+    return v
 
 
 def get_cached_avg_volume(symbol: str):
@@ -338,16 +349,23 @@ def get_cached_avg_volume(symbol: str):
     if (now - int(entry.get("fetched_at", 0))) < AVG_VOLUME_TTL_SECONDS:
         return entry.get("value")
 
+    v = None
     try:
         v = fetch_average_daily_volume_finnhub(symbol)
-        if v is None:
-            v = fetch_average_daily_volume_yahoo(symbol)
-        if v is None:
-            v = entry.get("value")
-        avg_volume_cache[symbol] = {"value": v, "fetched_at": now}
-        return v
     except Exception:
-        return entry.get("value")
+        v = None
+
+    if v is None:
+        try:
+            v = fetch_average_daily_volume_yahoo(symbol)
+        except Exception:
+            v = None
+
+    if v is None:
+        v = entry.get("value")
+
+    avg_volume_cache[symbol] = {"value": v, "fetched_at": now}
+    return v
 
 
 def poll_loop():
