@@ -7,8 +7,7 @@ app.py — Live Stock Display (Flask + Socket.IO)
 - Caches volume to avoid hammering the API.
 - Staggers requests to avoid bursty traffic.
 
-Local dev: async_mode="threading" is fine.
-Azure prod (recommended): Python 3.12 + eventlet worker via gunicorn.
+Local dev and Azure prod: async_mode="threading" with gunicorn threads.
 """
 
 import os
@@ -57,7 +56,7 @@ def _ensure_api_key():
 
 
 # Latest quote per symbol
-latest_by_symbol: dict[str, dict] = {
+latest_by_symbol = {
     sym: {
         "symbol": sym,
         "ts": None,
@@ -72,7 +71,7 @@ latest_by_symbol: dict[str, dict] = {
 }
 
 # Cache: symbol -> {"value": int|None, "fetched_at": unix_seconds}
-volume_cache: dict[str, dict] = {sym: {"value": None, "fetched_at": 0} for sym in SYMBOLS}
+volume_cache = {sym: {"value": None, "fetched_at": 0} for sym in SYMBOLS}
 
 
 def fetch_quote_finnhub(symbol: str) -> dict:
