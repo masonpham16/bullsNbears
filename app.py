@@ -71,7 +71,7 @@ API_KEY = os.getenv("FINNHUB_API_KEY", "")
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "15"))
 
 # Volume refresh cadence (per symbol)
-VOLUME_TTL_SECONDS = int(os.getenv("VOLUME_TTL_SECONDS", "300"))  # default 5 minutes
+VOLUME_TTL_SECONDS = int(os.getenv("VOLUME_TTL_SECONDS", "90"))
 
 # Small delay between symbol requests to avoid bursty spikes
 QUOTE_STAGGER_MS = int(os.getenv("QUOTE_STAGGER_MS", "150"))
@@ -141,6 +141,40 @@ def fetch_quote_finnhub(symbol: str) -> dict:
     }
 
 
+def fetch_intraday_volume_finnhub(symbol: str):
+    """
+    Pull today's running volume by summing 1-minute candle volumes.
+    This is usually more reliable intraday than daily candle snapshots.
+    """
+    _ensure_api_key()
+
+    now = int(time.time())
+    _from = now - 24 * 3600
+
+    r = requests.get(
+        "https://finnhub.io/api/v1/stock/candle",
+        params={
+            "symbol": symbol,
+            "resolution": "1",
+            "from": _from,
+            "to": now,
+            "token": API_KEY,
+        },
+        timeout=10,
+    )
+    r.raise_for_status()
+    data = r.json()
+
+    if data.get("s") != "ok":
+        return None
+
+    vols = data.get("v") or []
+    if not vols:
+        return None
+
+    return int(sum(vols))
+
+
 def fetch_daily_volume_finnhub(symbol: str):
     """
     Pull today's (most recent daily candle) volume in SHARES via /stock/candle.
@@ -185,7 +219,11 @@ def get_cached_volume(symbol: str):
 
     # Refresh; if refresh fails, keep old cached value
     try:
-        v = fetch_daily_volume_finnhub(symbol)
+        v = fetch_intraday_volume_finnhub(symbol)
+        if v is None:
+            v = fetch_daily_volume_finnhub(symbol)
+        if v is None:
+            v = entry.get("value")
         volume_cache[symbol] = {"value": v, "fetched_at": now}
         return v
     except Exception:
