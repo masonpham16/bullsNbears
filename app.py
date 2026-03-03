@@ -107,7 +107,7 @@ def fetch_quote_finnhub(symbol: str) -> dict:
     }
 
 
-def fetch_daily_volume_finnhub(symbol: str) -> int | None:
+def fetch_daily_volume_finnhub(symbol: str):
     """
     Pull today's (most recent daily candle) volume in SHARES via /stock/candle.
     https://finnhub.io/docs/api/stock-candles
@@ -141,7 +141,7 @@ def fetch_daily_volume_finnhub(symbol: str) -> int | None:
     return int(vols[-1])
 
 
-def get_cached_volume(symbol: str) -> int | None:
+def get_cached_volume(symbol: str):
     """Return cached volume (shares), refreshing if stale."""
     now = int(time.time())
     entry = volume_cache.get(symbol, {"value": None, "fetched_at": 0})
@@ -205,7 +205,7 @@ _thread_started = False
 @socketio.on("connect")
 def handle_connect():
     global _thread_started
-    print("🔥 client connected")
+    print("client connected")
 
     if not _thread_started:
         _thread_started = True
