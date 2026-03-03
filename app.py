@@ -72,6 +72,7 @@ POLL_SECONDS = int(os.getenv("POLL_SECONDS", "15"))
 
 # Volume refresh cadence (per symbol)
 VOLUME_TTL_SECONDS = int(os.getenv("VOLUME_TTL_SECONDS", "90"))
+AVG_VOLUME_TTL_SECONDS = int(os.getenv("AVG_VOLUME_TTL_SECONDS", "21600"))
 
 # Small delay between symbol requests to avoid bursty spikes
 QUOTE_STAGGER_MS = int(os.getenv("QUOTE_STAGGER_MS", "150"))
@@ -99,6 +100,7 @@ latest_by_symbol = {
         "change": None,
         "change_pct": None,
         "volume": None,  # shares
+        "avg_volume": None,  # average daily shares
         "note": "starting up",
     }
     for sym in SYMBOLS
@@ -106,6 +108,7 @@ latest_by_symbol = {
 
 # Cache: symbol -> {"value": int|None, "fetched_at": unix_seconds}
 volume_cache = {sym: {"value": None, "fetched_at": 0} for sym in SYMBOLS}
+avg_volume_cache = {sym: {"value": None, "fetched_at": 0} for sym in SYMBOLS}
 
 
 def fetch_quote_finnhub(symbol: str) -> dict:
@@ -209,6 +212,102 @@ def fetch_daily_volume_finnhub(symbol: str):
     return int(vols[-1])
 
 
+def fetch_intraday_volume_yahoo(symbol: str):
+    """
+    Fallback volume source using Yahoo chart data.
+    Sums intraday volume bars for a 1-day range.
+    """
+    r = requests.get(
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+        params={"range": "1d", "interval": "1m"},
+        timeout=10,
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    r.raise_for_status()
+    data = r.json()
+
+    result = ((data.get("chart") or {}).get("result") or [None])[0]
+    if not result:
+        return None
+
+    indicators = result.get("indicators") or {}
+    quote = (indicators.get("quote") or [None])[0]
+    if not quote:
+        return None
+
+    vols = quote.get("volume") or []
+    vals = [int(v) for v in vols if isinstance(v, (int, float))]
+    if not vals:
+        return None
+
+    return int(sum(vals))
+
+
+def fetch_average_daily_volume_finnhub(symbol: str):
+    """
+    Average recent daily volume for baseline "normal activity".
+    """
+    _ensure_api_key()
+
+    now = int(time.time())
+    _from = now - 60 * 24 * 3600
+
+    r = requests.get(
+        "https://finnhub.io/api/v1/stock/candle",
+        params={
+            "symbol": symbol,
+            "resolution": "D",
+            "from": _from,
+            "to": now,
+            "token": API_KEY,
+        },
+        timeout=10,
+    )
+    r.raise_for_status()
+    data = r.json()
+
+    if data.get("s") != "ok":
+        return None
+
+    vols = [int(v) for v in (data.get("v") or []) if isinstance(v, (int, float))]
+    if not vols:
+        return None
+
+    sample = vols[-20:]
+    if not sample:
+        return None
+
+    return int(sum(sample) / len(sample))
+
+
+def fetch_average_daily_volume_yahoo(symbol: str):
+    r = requests.get(
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+        params={"range": "3mo", "interval": "1d"},
+        timeout=10,
+        headers={"User-Agent": "Mozilla/5.0"},
+    )
+    r.raise_for_status()
+    data = r.json()
+
+    result = ((data.get("chart") or {}).get("result") or [None])[0]
+    if not result:
+        return None
+
+    indicators = result.get("indicators") or {}
+    quote = (indicators.get("quote") or [None])[0]
+    if not quote:
+        return None
+
+    vols = quote.get("volume") or []
+    vals = [int(v) for v in vols if isinstance(v, (int, float))]
+    if not vals:
+        return None
+
+    sample = vals[-40:]
+    return int(sum(sample) / len(sample))
+
+
 def get_cached_volume(symbol: str):
     """Return cached volume (shares), refreshing if stale."""
     now = int(time.time())
@@ -223,8 +322,29 @@ def get_cached_volume(symbol: str):
         if v is None:
             v = fetch_daily_volume_finnhub(symbol)
         if v is None:
+            v = fetch_intraday_volume_yahoo(symbol)
+        if v is None:
             v = entry.get("value")
         volume_cache[symbol] = {"value": v, "fetched_at": now}
+        return v
+    except Exception:
+        return entry.get("value")
+
+
+def get_cached_avg_volume(symbol: str):
+    now = int(time.time())
+    entry = avg_volume_cache.get(symbol, {"value": None, "fetched_at": 0})
+
+    if (now - int(entry.get("fetched_at", 0))) < AVG_VOLUME_TTL_SECONDS:
+        return entry.get("value")
+
+    try:
+        v = fetch_average_daily_volume_finnhub(symbol)
+        if v is None:
+            v = fetch_average_daily_volume_yahoo(symbol)
+        if v is None:
+            v = entry.get("value")
+        avg_volume_cache[symbol] = {"value": v, "fetched_at": now}
         return v
     except Exception:
         return entry.get("value")
@@ -252,7 +372,8 @@ def poll_loop():
                 else:
                     q = fetch_quote_finnhub(sym)
                     vol = get_cached_volume(sym)  # shares (int) or None
-                    latest_by_symbol[sym] = {**q, "volume": vol}
+                    avg_vol = get_cached_avg_volume(sym)
+                    latest_by_symbol[sym] = {**q, "volume": vol, "avg_volume": avg_vol}
 
             except Exception as e:
                 latest_by_symbol[sym] = {

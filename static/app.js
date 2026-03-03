@@ -36,7 +36,7 @@ const banner = document.getElementById("marketBanner");
 let marketOpen = false;
 
 // last-known per symbol from socket
-const symbolState = {}; // symbol -> { volume: number|null, change: number|null }
+const symbolState = {}; // symbol -> { volume: number|null, avgVolume: number|null, change: number|null }
 
 function isMarketOpenNY() {
 	const now = new Date();
@@ -65,7 +65,7 @@ function isMarketOpenNY() {
 }
 
 // forward decls (defined later)
-let syncDotsForSymbol, desiredCountFromVolume, seedAmbientDots;
+	let syncDotsForSymbol, targetDotsForSymbol, seedAmbientDots;
 
 function updateMarketMode() {
 	const openNow = isMarketOpenNY();
@@ -77,8 +77,7 @@ function updateMarketMode() {
 	const symbols = Object.keys(symbolState);
 	for (const sym of symbols) {
 		if (marketOpen) {
-			const vol = symbolState[sym]?.volume ?? null;
-			syncDotsForSymbol(sym, desiredCountFromVolume(vol));
+			syncDotsForSymbol(sym, targetDotsForSymbol(sym));
 		} else {
 			syncDotsForSymbol(sym, AMBIENT_DOTS_CLOSED);
 		}
@@ -97,11 +96,11 @@ let dots = [];
 // CLOSED mode
 const AMBIENT_DOTS_CLOSED = 18; // calm amount of dots shown per symbol while closed
 
-// OPEN mode: 1..100 dots using ONE shared reference scale for comparability.
-// Tune this to match your taste.
-// - Lower => more dots on average
-// - Higher => fewer dots on average
-const MAX_REFERENCE_VOLUME = 400_000_000; // 400M shares ~= “craziest day” => 100 dots
+// OPEN mode: map each symbol to dots by blending:
+// - relative activity vs that symbol's own normal volume
+// - cross-symbol activity rank (which symbol is most active now)
+const MIN_OPEN_DOTS = 10;
+const MAX_OPEN_DOTS = 100;
 
 // dot geometry
 const DOT_R = 2.2;
@@ -166,17 +165,35 @@ function centerSpawn() {
 	return { x: W / 2, y: H / 2 };
 }
 
-/**
- * Map volume (shares) -> dot count (1..100), globally comparable across symbols.
- * If NVDA volume is 2x GOOGL, it will have ~2x dots (rounding aside).
- */
-desiredCountFromVolume = function desiredCountFromVolume(volumeShares) {
-	if (!volumeShares || !Number.isFinite(volumeShares)) {
-		return 1;
-	}
-	const v = Math.max(0, Number(volumeShares));
-	const dots = Math.round((v / MAX_REFERENCE_VOLUME) * 100);
-	return Math.max(1, Math.min(100, dots));
+function maxVolumeAcrossSymbols() {
+	const vals = Object.values(symbolState)
+		.map(s => Number(s?.volume))
+		.filter(v => Number.isFinite(v) && v > 0);
+	return vals.length ? Math.max(...vals) : 0;
+}
+
+targetDotsForSymbol = function targetDotsForSymbol(symbol) {
+	const s = symbolState[symbol] || {};
+	const vol = Number(s.volume);
+	const avg = Number(s.avgVolume);
+	if (!Number.isFinite(vol) || vol <= 0) return MIN_OPEN_DOTS;
+
+	// Relative activity to "normal" for this symbol.
+	const rel = Number.isFinite(avg) && avg > 0 ? vol / avg : 1;
+	let relScore = 0.5; // ~normal activity => medium dots
+	if (rel <= 0.6) relScore = 0.2;
+	else if (rel <= 0.9) relScore = 0.35;
+	else if (rel <= 1.2) relScore = 0.5;
+	else if (rel <= 1.8) relScore = 0.72;
+	else relScore = 0.95;
+
+	// Cross-symbol rank so you can compare which stock is getting more activity now.
+	const maxVol = maxVolumeAcrossSymbols();
+	const rankScore = maxVol > 0 ? Math.sqrt(vol / maxVol) : 0.5;
+
+	const score = 0.6 * relScore + 0.4 * rankScore;
+	const dots = Math.round(MIN_OPEN_DOTS + score * (MAX_OPEN_DOTS - MIN_OPEN_DOTS));
+	return Math.max(MIN_OPEN_DOTS, Math.min(MAX_OPEN_DOTS, dots));
 };
 
 syncDotsForSymbol = function syncDotsForSymbol(symbol, desiredCount) {
@@ -353,8 +370,8 @@ function step() {
 seedAmbientDots = function seedAmbientDots() {
 	document.querySelectorAll(".stock-card").forEach(card => {
 		const sym = card.id.replace("card-", "");
-		if (!symbolState[sym]) symbolState[sym] = { volume: null, change: null };
-		syncDotsForSymbol(sym, marketOpen ? desiredCountFromVolume(symbolState[sym].volume) : AMBIENT_DOTS_CLOSED);
+		if (!symbolState[sym]) symbolState[sym] = { volume: null, avgVolume: null, change: null };
+		syncDotsForSymbol(sym, marketOpen ? targetDotsForSymbol(sym) : AMBIENT_DOTS_CLOSED);
 	});
 };
 
@@ -390,9 +407,10 @@ socket.on("tick", (data) => {
 	const symbol = data.symbol;
 	if (!symbol) return;
 
-	if (!symbolState[symbol]) symbolState[symbol] = { volume: null, change: null };
+	if (!symbolState[symbol]) symbolState[symbol] = { volume: null, avgVolume: null, change: null };
 
 	if (data.volume != null) symbolState[symbol].volume = Number(data.volume);
+	if (data.avg_volume != null) symbolState[symbol].avgVolume = Number(data.avg_volume);
 	if (data.change != null) symbolState[symbol].change = Number(data.change);
 
 	const elPrice = document.getElementById(`price-${symbol}`);
@@ -407,7 +425,12 @@ socket.on("tick", (data) => {
 	if (elVolume) {
 		if (data.volume != null) {
 			const volM = Number(data.volume) / 1_000_000;
-			elVolume.textContent = `${volM.toFixed(2)}M`;
+			if (data.avg_volume != null && Number(data.avg_volume) > 0) {
+				const rel = Number(data.volume) / Number(data.avg_volume);
+				elVolume.textContent = `${volM.toFixed(2)}M (${rel.toFixed(2)}x)`;
+			} else {
+				elVolume.textContent = `${volM.toFixed(2)}M`;
+			}
 		} else {
 			elVolume.textContent = "—";
 		}
@@ -418,7 +441,9 @@ socket.on("tick", (data) => {
 	}
 
 	if (marketOpen) {
-		syncDotsForSymbol(symbol, desiredCountFromVolume(symbolState[symbol].volume));
+		for (const sym of Object.keys(symbolState)) {
+			syncDotsForSymbol(sym, targetDotsForSymbol(sym));
+		}
 	} else {
 		syncDotsForSymbol(symbol, AMBIENT_DOTS_CLOSED);
 	}
