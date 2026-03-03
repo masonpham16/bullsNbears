@@ -99,8 +99,9 @@ const AMBIENT_DOTS_CLOSED = 18; // calm amount of dots shown per symbol while cl
 // OPEN mode: map each symbol to dots by blending:
 // - relative activity vs that symbol's own normal volume
 // - cross-symbol activity rank (which symbol is most active now)
-const MIN_OPEN_DOTS = 2;
-const MAX_OPEN_DOTS = 100;
+const MIN_OPEN_DOTS = 1;
+const MAX_OPEN_DOTS = 120;
+const DOTS_PER_MILLION_SHARES = 1;
 
 // dot geometry
 const DOT_R = 2.2;
@@ -165,34 +166,24 @@ function centerSpawn() {
 	return { x: W / 2, y: H / 2 };
 }
 
-function maxVolumeAcrossSymbols() {
-	const vals = Object.values(symbolState)
-		.map(s => Number(s?.volume))
-		.filter(v => Number.isFinite(v) && v > 0);
-	return vals.length ? Math.max(...vals) : 0;
-}
-
 targetDotsForSymbol = function targetDotsForSymbol(symbol) {
 	const s = symbolState[symbol] || {};
 	const vol = Number(s.volume);
 	const avg = Number(s.avgVolume);
 	if (!Number.isFinite(vol) || vol <= 0) return MIN_OPEN_DOTS;
 
-	// Relative activity to "normal" for this symbol (0.1x..10x mapped to 0..1).
-	const rel = Number.isFinite(avg) && avg > 0 ? vol / avg : 1;
-	const relClamped = Math.max(0.1, Math.min(10, rel));
-	const relScore = (Math.log10(relClamped) + 1) / 2;
+	// Direct absolute mapping: ~1 dot per 1M shares.
+	// Example: 40M => 40 dots, 2M => 2 dots.
+	let dots = (vol / 1_000_000) * DOTS_PER_MILLION_SHARES;
 
-	// Cross-symbol rank so you can compare which stock is getting more activity now.
-	const maxVol = maxVolumeAcrossSymbols();
-	const rankRaw = maxVol > 0 ? Math.max(0, Math.min(1, vol / maxVol)) : 0.5;
-	// Exponent >1 increases contrast: low volume gets much fewer dots.
-	const rankScore = Math.pow(rankRaw, 1.8);
+	// Light activity boost/reduce vs "normal", but keep absolute volume dominant.
+	if (Number.isFinite(avg) && avg > 0) {
+		const rel = vol / avg;
+		const boost = Math.max(0.85, Math.min(1.2, Math.sqrt(rel)));
+		dots *= boost;
+	}
 
-	// Emphasize cross-symbol volume differences.
-	const score = 0.2 * relScore + 0.8 * rankScore;
-	const dots = Math.round(MIN_OPEN_DOTS + score * (MAX_OPEN_DOTS - MIN_OPEN_DOTS));
-	return Math.max(MIN_OPEN_DOTS, Math.min(MAX_OPEN_DOTS, dots));
+	return Math.max(MIN_OPEN_DOTS, Math.min(MAX_OPEN_DOTS, Math.round(dots)));
 };
 
 syncDotsForSymbol = function syncDotsForSymbol(symbol, desiredCount) {
