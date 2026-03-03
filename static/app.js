@@ -415,12 +415,7 @@ socket.on("tick", (data) => {
 	if (elVolume) {
 		if (data.volume != null) {
 			const volM = Number(data.volume) / 1_000_000;
-			if (data.avg_volume != null && Number(data.avg_volume) > 0) {
-				const rel = Number(data.volume) / Number(data.avg_volume);
-				elVolume.textContent = `${volM.toFixed(2)}M (${rel.toFixed(2)}x)`;
-			} else {
-				elVolume.textContent = `${volM.toFixed(2)}M`;
-			}
+			elVolume.textContent = `${volM.toFixed(2)}M`;
 		} else {
 			elVolume.textContent = "—";
 		}
