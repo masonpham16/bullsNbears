@@ -99,7 +99,7 @@ const AMBIENT_DOTS_CLOSED = 18; // calm amount of dots shown per symbol while cl
 // OPEN mode: map each symbol to dots by blending:
 // - relative activity vs that symbol's own normal volume
 // - cross-symbol activity rank (which symbol is most active now)
-const MIN_OPEN_DOTS = 10;
+const MIN_OPEN_DOTS = 2;
 const MAX_OPEN_DOTS = 100;
 
 // dot geometry
@@ -178,20 +178,19 @@ targetDotsForSymbol = function targetDotsForSymbol(symbol) {
 	const avg = Number(s.avgVolume);
 	if (!Number.isFinite(vol) || vol <= 0) return MIN_OPEN_DOTS;
 
-	// Relative activity to "normal" for this symbol.
+	// Relative activity to "normal" for this symbol (0.1x..10x mapped to 0..1).
 	const rel = Number.isFinite(avg) && avg > 0 ? vol / avg : 1;
-	let relScore = 0.5; // ~normal activity => medium dots
-	if (rel <= 0.6) relScore = 0.2;
-	else if (rel <= 0.9) relScore = 0.35;
-	else if (rel <= 1.2) relScore = 0.5;
-	else if (rel <= 1.8) relScore = 0.72;
-	else relScore = 0.95;
+	const relClamped = Math.max(0.1, Math.min(10, rel));
+	const relScore = (Math.log10(relClamped) + 1) / 2;
 
 	// Cross-symbol rank so you can compare which stock is getting more activity now.
 	const maxVol = maxVolumeAcrossSymbols();
-	const rankScore = maxVol > 0 ? Math.sqrt(vol / maxVol) : 0.5;
+	const rankRaw = maxVol > 0 ? Math.max(0, Math.min(1, vol / maxVol)) : 0.5;
+	// Exponent >1 increases contrast: low volume gets much fewer dots.
+	const rankScore = Math.pow(rankRaw, 1.8);
 
-	const score = 0.6 * relScore + 0.4 * rankScore;
+	// Emphasize cross-symbol volume differences.
+	const score = 0.2 * relScore + 0.8 * rankScore;
 	const dots = Math.round(MIN_OPEN_DOTS + score * (MAX_OPEN_DOTS - MIN_OPEN_DOTS));
 	return Math.max(MIN_OPEN_DOTS, Math.min(MAX_OPEN_DOTS, dots));
 };
