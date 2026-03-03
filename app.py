@@ -15,19 +15,53 @@ import time
 import requests
 from dotenv import load_dotenv
 from flask import Flask, render_template, jsonify
-from flask_socketio import SocketIO
+try:
+    from flask_socketio import SocketIO
+    SOCKETIO_AVAILABLE = True
+except Exception:
+    SOCKETIO_AVAILABLE = False
+
+    class SocketIO:  # fallback so app can still start if socketio deps fail
+        def __init__(self, app, **kwargs):
+            self._app = app
+
+        def on(self, _event):
+            def decorator(func):
+                return func
+
+            return decorator
+
+        def emit(self, *_args, **_kwargs):
+            return None
+
+        def sleep(self, seconds):
+            time.sleep(seconds)
+
+        def start_background_task(self, target, *args, **kwargs):
+            import threading
+
+            t = threading.Thread(target=target, args=args, kwargs=kwargs, daemon=True)
+            t.start()
+            return t
+
+        def run(self, app, host="0.0.0.0", port=5050, debug=False):
+            app.run(host=host, port=port, debug=debug)
 
 load_dotenv()
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev-secret")
 
+raw_async_mode = (os.getenv("SOCKETIO_ASYNC_MODE", "threading") or "").strip().lower()
+if raw_async_mode not in {"threading", "eventlet", "gevent", "gevent_uwsgi"}:
+    raw_async_mode = "threading"
+
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
-    async_mode=os.getenv("SOCKETIO_ASYNC_MODE", "threading"),  # "threading" locally
-    logger=True,
-    engineio_logger=True,
+    async_mode=raw_async_mode,
+    logger=False,
+    engineio_logger=False,
 )
 
 PROVIDER = os.getenv("MARKET_API_PROVIDER", "finnhub").lower()
